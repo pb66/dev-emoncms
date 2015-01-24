@@ -19,6 +19,16 @@ Script to install emonCMS from git for development purposes
 ###Important
 To be able to install "non-interactively" mysql is installed **without** a root password set up, therefore immediately after running this install you should set-up a root password for mySQL as this is a security risk if left as it is.
 
+###Temporary
+To install data directories to a different location
+
+    git clone https://github.com/pb66/dev-emoncms.git ~/dev-emoncms
+    nano ~/dev-emoncms/install
+    # EDIT "DATA_PATH" AND SAVE
+    ~/dev-emoncms/install
+    
+To use existing data, install as above and edit settings.php (db password and username), then swap out data files & directories.
+
 ###Todo
 - enable *target* data directory to be specified on the command line.
 - automate setting the mySQL root password at end of install
