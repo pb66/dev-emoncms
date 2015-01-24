@@ -23,6 +23,7 @@ To be able to install "non-interactively" mysql is installed **without** a root 
 - enable *target* data directory to be specified on the command line.
 - automate setting the mySQL root password at end of install
 - look at making it more flexible about existing installs and data.
+- add clean-up commands (~/dev-emoncms can be deleted after install)
 
 
 
