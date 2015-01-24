@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# emoncms_settings is hardcoded to look to /var/lib to change this we need to "edit" settings conf
+DATA_PATH=~/emonData
+
+sudo apt-get -y update
+sudo apt-get -y upgrade
+
+#Install all dependencies
+sudo apt-get -y install apache2 php5 libapache2-mod-php5 php5-mysql php5-curl php-pear php5-dev php5-mcrypt php5-common redis-server ufw  mysql-client
+# sudo apt-get -y --force-yes install mysql-server
+
+#export DEBIAN_FRONTEND=noninteractive
+sudo DEBIAN_FRONTEND=noninteractive apt-get -q -y --force-yes install mysql-server
+
+
+#Install pecl dependencies (serial, redis and swift mailer)
+sudo pear channel-discover pear.swiftmailer.org
+sudo pecl install channel://pecl.php.net/dio-0.0.6 redis swift/swift
+
+#Add pecl modules to php5 config
+sudo sh -c 'echo "extension=dio.so" > /etc/php5/apache2/conf.d/20-dio.ini'
+sudo sh -c 'echo "extension=dio.so" > /etc/php5/cli/conf.d/20-dio.ini'
+sudo sh -c 'echo "extension=redis.so" > /etc/php5/apache2/conf.d/20-redis.ini'
+sudo sh -c 'echo "extension=redis.so" > /etc/php5/cli/conf.d/20-redis.ini'
+
+#Emoncms uses a front controller to route requests, modrewrite needs to be configured:
+sudo a2enmod rewrite
+
+UUID=$(python -c 'import sys,uuid; sys.stdout.write(uuid.uuid4().hex)')
+
+#For <Directory /> and <Directory /var/www/> change AllowOverride None to AllowOverride All. This may be on lines 7 and 11 of /etc/apache2/sites-available/000-default. Modern versions of Ubuntu store these in the main config file: /etc/apache2/apache2.conf.
+#$ sudo nano /etc/apache2/sites-available/000-default
+#or
+#$ sudo nano /etc/apache2/apache2.conf
+
+#Restart the lamp server:
+#sudo service apache2 restart
+
+#Set the permissions of the www directory to be owned by your username:
+sudo chown $USER /var/www
+#Download emoncms using git:
+git clone https://github.com/emoncms/emoncms.git /var/www/emoncms
+
+#echo Creating emoncms database, please enter your SQL root password
+#mysql -uroot -p -e "CREATE DATABASE IF NOT EXISTS emoncms;GRANT ALL ON emoncms.* TO 'emoncms'@'localhost' IDENTIFIED BY 'Pa55word';FLUSH PRIVILEGES;"
+PW=\'$UUID\'
+mysql -u root -e "CREATE DATABASE IF NOT EXISTS emoncms;GRANT ALL ON emoncms.* TO 'emoncms'@'localhost' IDENTIFIED BY $PW;FLUSH PRIVILEGES;"
+echo
+echo "The password used by emoncms to access database is $UUID"
+echo
+
+# Install logging
+sudo pear channel-discover pear.apache.org/log4php
+sudo pear install log4php/Apache_log4php
+#ensure that log file has write permissions for www-data, pi and root.
+###sudo chmod 660 emoncms.log
+sudo touch /var/www/emoncms/emoncms.log
+sudo chmod 660  /var/www/emoncms/emoncms.log
+
+
+#Make a copy of default.settings.php and call it settings.php
+cp /var/www/emoncms/default.settings.php /var/www/emoncms/settings.php
+
+sudo sed -i -e "s/_DB_USER_/emoncms/" /var/www/emoncms/settings.php
+sudo sed -i -e "s/_DB_PASSWORD_/$UUID/" /var/www/emoncms/settings.php
+#    $username = "_DB_USER_";       #emoncms
+#    $password = "_DB_PASSWORD_";   #pa55word
+#    $server   = "localhost";
+#    $database = "emoncms";
+
+if [[ $DATA_PATH != "/var/lib" ]] ; then
+    {
+    if [ ! -d $DATA_PATH ] ; then
+      {
+      sudo mkdir -p $DATA_PATH
+      }
+    fi
+    sudo sed -i -e "s,/var/lib,$DATA_PATH," /var/www/emoncms/settings.php
+    # To move mysql/emoncms
+    sudo mv /var/lib/mysql $DATA_PATH/mysql
+    sudo ln -s $DATA_PATH/mysql /var/lib/mysql
+    }
+fi
+
+#Create data folders
+sudo mkdir $DATA_PATH/phpfiwa
+sudo mkdir $DATA_PATH/phpfina
+sudo mkdir $DATA_PATH/phptimeseries
+
+sudo chown www-data:root $DATA_PATH/phpfiwa
+sudo chown www-data:root $DATA_PATH/phpfina
+sudo chown www-data:root $DATA_PATH/phptimeseries
+
+sudo sh -c "echo 'Alias /emoncms /var/www/emoncms' > /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '<Directory /var/www/emoncms>' >> /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '  Options FollowSymLinks' >> /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '  AllowOverride All' >> /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '  DirectoryIndex index.php' >> /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '  Order allow,deny' >> /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '  Allow from all' >> /etc/apache2/sites-available/emoncms"
+sudo sh -c "echo '</Directory>' >> /etc/apache2/sites-available/emoncms"
+sudo a2ensite emoncms
+
+# update buildnotes
+#echo "emonCMS installed by 'addemoncms.sh'..." >> NOTES
+sudo service apache2 restart
+
+# add ufw rules
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 22/tcp
+sudo ufw allow 3389/tcp
+sudo ufw --force enable
+
+echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
+
+#sudo dpkg-reconfigure -f dialog mysql-server
+#dpkg --get-selections | grep mysql-server
+#sudo dpkg-reconfigure -f dialog mysql-server-5.5
+
