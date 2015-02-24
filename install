@@ -14,7 +14,7 @@ if [[ $DATA_PATH != "/var/lib" ]] ; then
         {
         # create a link for mysql install to follow to data folder
         sudo ln -s $DATA_PATH/mysql /var/lib/mysql
-        )
+        }
     }
 fi
 
