@@ -1,10 +1,25 @@
 #!/bin/bash
 
 # emoncms_settings is hardcoded to look to /var/lib to change this we need to "edit" settings conf
-DATA_PATH=~/emonData
+DATA_PATH=~/emondata
 
-sudo apt-get -y update
-sudo apt-get -y upgrade
+if [[ $DATA_PATH != "/var/lib" ]] ; then
+    {
+    if [ ! -d $DATA_PATH ] ; then
+      {
+      sudo mkdir -p $DATA_PATH
+      }
+    fi
+    if [ ! -d $DATA_PATH/mysql ] ; then
+        {
+        # create a link for mysql install to follow to data folder
+        sudo ln -s $DATA_PATH/mysql /var/lib/mysql
+        )
+    }
+fi
+
+#sudo apt-get -y update
+#sudo apt-get -y upgrade
 
 #Install all dependencies
 sudo apt-get -y install apache2 php5 libapache2-mod-php5 php5-mysql php5-curl php-pear php5-dev php5-mcrypt php5-common redis-server ufw  mysql-client
@@ -71,15 +86,7 @@ sudo sed -i -e "s/_DB_PASSWORD_/$UUID/" /var/www/emoncms/settings.php
 
 if [[ $DATA_PATH != "/var/lib" ]] ; then
     {
-    if [ ! -d $DATA_PATH ] ; then
-      {
-      sudo mkdir -p $DATA_PATH
-      }
-    fi
     sudo sed -i -e "s,/var/lib,$DATA_PATH," /var/www/emoncms/settings.php
-    # To move mysql/emoncms
-    sudo mv /var/lib/mysql $DATA_PATH/mysql
-    sudo ln -s $DATA_PATH/mysql /var/lib/mysql
     }
 fi
 
@@ -104,16 +111,17 @@ sudo a2ensite emoncms
 
 # update buildnotes
 #echo "emonCMS installed by 'addemoncms.sh'..." >> NOTES
-sudo service apache2 restart
+
+#sudo service apache2 restart
 
 # add ufw rules
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw allow 22/tcp
 sudo ufw allow 3389/tcp
-sudo ufw --force enable
+#sudo ufw --force enable
 
-echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
+#echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
 
 #sudo dpkg-reconfigure -f dialog mysql-server
 #dpkg --get-selections | grep mysql-server
