@@ -3,22 +3,6 @@
 # emoncms_settings is hardcoded to look to /var/lib to change this we need to "edit" settings conf
 DATA_PATH=~/emondata
 
-if [[ $DATA_PATH != "/var/lib" ]] ; then
-    {
-    if [ ! -d $DATA_PATH ] ; then
-      {
-      sudo mkdir -p $DATA_PATH
-      }
-    fi
-    if [ ! -d $DATA_PATH/mysql ] ; then
-        {
-        # create a link for mysql install to follow to data folder
-        sudo ln -s $DATA_PATH/mysql /var/lib/mysql
-        }
-    fi
-    }
-fi
-
 #sudo apt-get -y update
 #sudo apt-get -y upgrade
 
@@ -87,7 +71,16 @@ sudo sed -i -e "s/_DB_PASSWORD_/$UUID/" /var/www/emoncms/settings.php
 
 if [[ $DATA_PATH != "/var/lib" ]] ; then
     {
+    if [ ! -d $DATA_PATH ] ; then
+      {
+      sudo mkdir -p $DATA_PATH
+      }
+    fi
     sudo sed -i -e "s,/var/lib,$DATA_PATH," /var/www/emoncms/settings.php
+    # To move mysql/emoncms
+    sudo cp -rp /var/lib/mysql $DATA_PATH/mysql
+    sudo rm -r /var/lib/mysql
+    sudo ln -s $DATA_PATH/mysql /var/lib/mysql
     }
 fi
 
@@ -95,10 +88,12 @@ fi
 sudo mkdir $DATA_PATH/phpfiwa
 sudo mkdir $DATA_PATH/phpfina
 sudo mkdir $DATA_PATH/phptimeseries
+sudo mkdir $DATA_PATH/timestore
 
 sudo chown www-data:root $DATA_PATH/phpfiwa
 sudo chown www-data:root $DATA_PATH/phpfina
 sudo chown www-data:root $DATA_PATH/phptimeseries
+sudo chown www-data:root $DATA_PATH/timestore
 
 sudo sh -c "echo 'Alias /emoncms /var/www/emoncms' > /etc/apache2/sites-available/emoncms"
 sudo sh -c "echo '<Directory /var/www/emoncms>' >> /etc/apache2/sites-available/emoncms"
@@ -112,7 +107,6 @@ sudo a2ensite emoncms
 
 # update buildnotes
 #echo "emonCMS installed by 'addemoncms.sh'..." >> NOTES
-
 #sudo service apache2 restart
 
 # add ufw rules
@@ -120,11 +114,10 @@ sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw allow 22/tcp
 sudo ufw allow 3389/tcp
-#sudo ufw --force enable
+sudo ufw --force enable
 
-#echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
+echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
 
 #sudo dpkg-reconfigure -f dialog mysql-server
 #dpkg --get-selections | grep mysql-server
 #sudo dpkg-reconfigure -f dialog mysql-server-5.5
-
