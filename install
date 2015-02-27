@@ -3,16 +3,12 @@
 # emoncms_settings is hardcoded to look to /var/lib to change this we need to "edit" settings conf
 DATA_PATH=~/emondata
 
-#sudo apt-get -y update
-#sudo apt-get -y upgrade
-
 #Install all dependencies
-sudo apt-get -y install apache2 php5 libapache2-mod-php5 php5-mysql php5-curl php-pear php5-dev php5-mcrypt php5-common redis-server ufw  mysql-client
-# sudo apt-get -y --force-yes install mysql-server
+sudo apt-get -y install apache2 libapache2-mod-php5 php5-mysql mysql-client \
+    php-pear php5 php5-curl php5-common php5-dev php5-mcrypt  redis-server
 
 #export DEBIAN_FRONTEND=noninteractive
 sudo DEBIAN_FRONTEND=noninteractive apt-get -q -y --force-yes install mysql-server
-
 
 #Install pecl dependencies (serial, redis and swift mailer)
 sudo pear channel-discover pear.swiftmailer.org
@@ -24,23 +20,24 @@ sudo sh -c 'echo "extension=dio.so" > /etc/php5/cli/conf.d/20-dio.ini'
 sudo sh -c 'echo "extension=redis.so" > /etc/php5/apache2/conf.d/20-redis.ini'
 sudo sh -c 'echo "extension=redis.so" > /etc/php5/cli/conf.d/20-redis.ini'
 
-#Emoncms uses a front controller to route requests, modrewrite needs to be configured:
-sudo a2enmod rewrite
-
-UUID=$(python -c 'import sys,uuid; sys.stdout.write(uuid.uuid4().hex)')
-
-#For <Directory /> and <Directory /var/www/> change AllowOverride None to AllowOverride All. This may be on lines 7 and 11 of /etc/apache2/sites-available/000-default. Modern versions of Ubuntu store these in the main config file: /etc/apache2/apache2.conf.
-#$ sudo nano /etc/apache2/sites-available/000-default
-#or
-#$ sudo nano /etc/apache2/apache2.conf
-
-#Restart the lamp server:
-#sudo service apache2 restart
-
 #Set the permissions of the www directory to be owned by your username:
 sudo chown $USER /var/www
-#Download emoncms using git:
-git clone https://github.com/emoncms/emoncms.git /var/www/emoncms
+#Download emoncms using git:TODO change back to emoncms repo
+git clone https://github.com/pb66/emoncms.git /var/www/emoncms
+
+# Install logging
+sudo pear channel-discover pear.apache.org/log4php
+sudo pear install log4php/Apache_log4php
+#ensure that log file has write permissions for www-data, pi and root.
+###sudo chmod 660 emoncms.log
+sudo touch /var/www/emoncms/emoncms.log
+sudo chmod 660 /var/www/emoncms/emoncms.log
+#TODO move the emoncms error logs to /var/log (root permission or chown folder)
+
+
+
+# Create a Unique UUID for a emonCMS DB password
+UUID=$(python -c 'import sys,uuid; sys.stdout.write(uuid.uuid4().hex)')
 
 #echo Creating emoncms database, please enter your SQL root password
 #mysql -uroot -p -e "CREATE DATABASE IF NOT EXISTS emoncms;GRANT ALL ON emoncms.* TO 'emoncms'@'localhost' IDENTIFIED BY 'Pa55word';FLUSH PRIVILEGES;"
@@ -49,15 +46,6 @@ mysql -u root -e "CREATE DATABASE IF NOT EXISTS emoncms;GRANT ALL ON emoncms.* T
 echo
 echo "The password used by emoncms to access database is $UUID"
 echo
-
-# Install logging
-sudo pear channel-discover pear.apache.org/log4php
-sudo pear install log4php/Apache_log4php
-#ensure that log file has write permissions for www-data, pi and root.
-###sudo chmod 660 emoncms.log
-sudo touch /var/www/emoncms/emoncms.log
-sudo chmod 660  /var/www/emoncms/emoncms.log
-
 
 #Make a copy of default.settings.php and call it settings.php
 cp /var/www/emoncms/default.settings.php /var/www/emoncms/settings.php
@@ -69,6 +57,8 @@ sudo sed -i -e "s/_DB_PASSWORD_/$UUID/" /var/www/emoncms/settings.php
 #    $server   = "localhost";
 #    $database = "emoncms";
 
+
+### Create data directories
 if [[ $DATA_PATH != "/var/lib" ]] ; then
     {
     if [ ! -d $DATA_PATH ] ; then
@@ -94,7 +84,14 @@ sudo chown www-data:root $DATA_PATH/phpfiwa
 sudo chown www-data:root $DATA_PATH/phpfina
 sudo chown www-data:root $DATA_PATH/phptimeseries
 sudo chown www-data:root $DATA_PATH/timestore
+###
 
+
+# Configure modrewrite
+sudo a2enmod rewrite
+
+### Create "sites-available"
+#TODO review this approach.
 sudo sh -c "echo 'Alias /emoncms /var/www/emoncms' > /etc/apache2/sites-available/emoncms"
 sudo sh -c "echo '<Directory /var/www/emoncms>' >> /etc/apache2/sites-available/emoncms"
 sudo sh -c "echo '  Options FollowSymLinks' >> /etc/apache2/sites-available/emoncms"
@@ -104,10 +101,7 @@ sudo sh -c "echo '  Order allow,deny' >> /etc/apache2/sites-available/emoncms"
 sudo sh -c "echo '  Allow from all' >> /etc/apache2/sites-available/emoncms"
 sudo sh -c "echo '</Directory>' >> /etc/apache2/sites-available/emoncms"
 sudo a2ensite emoncms
-
-# update buildnotes
-#echo "emonCMS installed by 'addemoncms.sh'..." >> NOTES
-#sudo service apache2 restart
+###
 
 # add ufw rules
 sudo ufw allow 80/tcp
@@ -116,8 +110,167 @@ sudo ufw allow 22/tcp
 sudo ufw allow 3389/tcp
 sudo ufw --force enable
 
-echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
+# Install emoncms utilities script
+sudo sh -c 'cat > /usr/bin/emoncms' << EOF
+#!/bin/bash
 
-#sudo dpkg-reconfigure -f dialog mysql-server
-#dpkg --get-selections | grep mysql-server
-#sudo dpkg-reconfigure -f dialog mysql-server-5.5
+R=\$(touch ~/roorrw 2>/dev/null && { rm ~/roorrw; echo "RW"; } || echo "RO")
+
+start(){
+    # Add services to startup
+    sudo update-rc.d apache2 defaults
+    sudo update-rc.d mysql defaults
+    sudo update-rc.d redis-server defaults
+    if [ -f /var/www/emoncms/run/feedwriter ] then
+        {
+        sudo update-rc.d feedwriter defaults
+        }
+    # Start services
+    sudo service apache2 start
+    sudo service mysql start
+    sudo service redis-server start
+    if [ -f /var/www/emoncms/run/feedwriter ] then
+        {
+        sudo service feedwriter start
+        }
+}
+
+stop(){
+    # Stop services
+    sudo service apache2 stop
+    sudo service mysql stop
+    sudo service redis-server stop
+    if [ -f /var/www/emoncms/run/feedwriter ] then
+        {
+        sudo service feedwriter stop
+        }
+    # Remove services from startup
+    sudo update-rc.d apache2 remove
+    sudo update-rc.d mysql remove
+    sudo update-rc.d redis-server remove
+    if [ -f /var/www/emoncms/run/feedwriter ] then
+        {
+        sudo update-rc.d feedwriter remove
+        }
+}
+
+lockRO(){
+    sudo mount -o remount,ro /dev/mmcblk0p2  /
+}
+
+openRW(){
+    sudo mount -o remount,rw /dev/mmcblk0p2  /
+}
+
+case \$1 in
+    -c | --config)
+        if [ \$R == "RO" ] ; then openRW ; fi
+        sudo nano /var/www/emoncms/settings.php
+        if [ \$R == "RO" ] ; then lockRO; fi
+        ;;
+    -da)
+        read -p "Disable the emonCMS server intallation [y/n]? " -n 1 -r
+        echo
+        if [[ ! \$REPLY =~ ^[Yy]$ ]] ; then exit ; fi
+        ;&
+    --disable-all)
+        if [ \$R == "RO" ] ; then openRW ; fi
+        stop
+        if [ \$R == "RO" ] ; then lockRO ; fi
+        ;;
+    --ef)
+        read -p "Enable a 'full' emonCMS installation [y/n]? " -n 1 -r
+        echo
+        if [[ ! \$REPLY =~ ^[Yy]$ ]] ; then exit ; fi
+        ;&
+    --enable-full)
+        if [ \$R == "RO" ] ; then openRW ; fi
+        ### emonCMS(full)
+        # switch to master branch
+        cd /var/www/emoncms
+        git checkout master --force
+        cd - >/dev/null
+        start
+        if [ \$R == "RO" ] ; then lockRO ; fi
+        ;;
+    --el)
+        read -p "Enable a 'lite' emonCMS installation [y/n]? " -n 1 -r
+        echo
+        if [[ ! \$REPLY =~ ^[Yy]$ ]] ; then exit ; fi
+        ;&
+    --enable-lite)
+        if [ \$R == "RO" ] ; then openRW ; fi
+        ### emonCMS(lite)
+        # switch to bufferedwrite branch
+        cd /var/www/emoncms
+        git checkout bufferedwrite --force
+        cd - >/dev/null
+        start
+        if [ \$R == "RO" ] ; then lockRO; fi
+        ;;
+    -u | --update)
+        if [ \$R == "RO" ] ; then openRW ; fi
+        echo "Checking for emonCMS updates..."
+        cd /var/www/emoncms
+        git pull
+        cd - >/dev/null
+        if [ \$R == "RO" ] ; then lockRO ; fi
+        ;;
+
+    *)
+        echo
+        echo "The 'emoncms' command can be used with these valid options"
+        echo
+        echo "emonCMS utilities"
+        echo "   -c | --config    Opens emoncms.conf for configuration"
+        echo "   -h | --help      Display this help for emonCMS command options"
+        echo "   -u | --update    Updates emonCMS via the git repository"
+        echo
+        echo "emonCMS setup"
+        echo "  -da | --disable-all   Disables the server, database & emoncms"
+        echo "  -el | --enable-lite   Enables server, database & lite emonCMS"
+        echo "  -ef | --enable-full   Enables server, database & full emonCMS"
+        echo;;
+esac
+
+EOF
+sudo chmod +x /usr/bin/emoncms
+
+
+# Set up feedwriter
+# FIXME set feedwriter permissions and get pulled into emoncms repo
+sudo chmod 755 /var/www/emoncms/run/feedwriter
+sudo ln -s /var/www/emoncms/run/feedwriter /etc/init.d/feedwriter
+
+# TODO 'IF SD' and ! -f /boot/emoncms.conf
+# move emoncms/settings.php to /boot partition as emoncms.conf
+sudo mv /var/www/emoncms/settings.php /boot/emoncms.conf
+# and symlink.
+sudo ln -s /boot/emoncms.conf /var/www/emoncms/settings.php
+
+# edit redis log and save
+sudo sh -c 'if grep -q "^logfile" /etc/redis/redis.conf; then sed -i /etc/redis/redis.conf -e "s|^logfile.*|#&|"; fi'
+sudo sh -c 'if grep -q "^save" /etc/redis/redis.conf; then sed -i /etc/redis/redis.conf -e "s|^save.*|#&|"; fi'
+
+# edit apache2 logging
+sudo sh -c 'if grep -q "^CustomLog" /etc/apache2/conf.d/other-vhosts-access-log; then sed -i /etc/apache2/conf.d/other-vhosts-access-log -e "s|^CustomLog.*|#&|"; fi'
+sudo sh -c 'if grep -q "export APACHE_LOG_DIR=/var/log/apache2$SUFFIX" /etc/apache2/envvars; then sed -i /etc/apache2/envvars -e "s|export APACHE_LOG_DIR=/var/log/apache2$SUFFIX|export APACHE_LOG_DIR=/var/log$SUFFIX|"; fi'
+
+# edit php5 session
+sudo sh -c 'if grep -q "/var/lib/php5" /etc/php5/apache2/php.ini; then sed -i /etc/php5/apache2/php.ini -e "s|"/var/lib/php5"|"/tmp"|"; fi'
+
+# revoke root login
+sudo sh -c 'if grep -q "PermitRootLogin yes" /etc/ssh/sshd_config; then sed -i /etc/ssh/sshd_config -e "s|PermitRootLogin yes|PermitRootLogin no|"; fi'
+
+
+echo "IMPORTANT - YOU MUST NOW SET A ROOT PASSWORD FOR MySQL"
+# TODO final command "mysql_secure_installation" to set root password
+# mysql_secure_installation
+emoncms --disable-all
+
+# Set emoncms settings.php $dbtest to false and $allowusersregister to false.
+# edit settings.php new users /
+#sudo rm -r ~/dev-emoncms
+
+#TODO https ??
+
